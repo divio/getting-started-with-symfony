@@ -6,8 +6,8 @@ Thank you for contributing! We appreciate your involvement in making this projec
 
 Proposals can be submitted through:
 
-- [Pull Requests](https://github.com/divio/getting-started-with-symfony/pulls)
-- [Issues](https://github.com/divio/getting-started-with-symfony/issues)
+- [Pull Requests](https://github.com/divio/getting-started-with-php-symfony/pulls)
+- [Issues](https://github.com/divio/getting-started-with-php-symfony/issues)
 
 ## Pull Requests and Branches
 
