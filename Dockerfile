@@ -1,35 +1,103 @@
-FROM divio/base:0.1-php7.3-stretch
-EXPOSE 80
+#syntax=docker/dockerfile:1.4
 
-COPY migrate.sh Procfile /app/
-COPY divio/*.php divio/*.sh /app/divio/
-COPY start.sh /usr/local/bin/start
+# Versions
+FROM dunglas/frankenphp:1-alpine AS frankenphp_upstream
 
-RUN echo '[www]\nclear_env = no\ncatch_workers_output = yes' > /usr/local/etc/php-fpm.d/zz-divio.conf
-RUN echo 'auto_prepend_file="/app/divio/rewrite-env.php"' > /usr/local/etc/php/conf.d/divio-conf.ini
-RUN chmod a+x /usr/local/bin/start /app/*.sh
+# The different stages of this Dockerfile are meant to be built into separate images
+# https://docs.docker.com/develop/develop-images/multistage-build/#stop-at-a-specific-build-stage
+# https://docs.docker.com/compose/compose-file/#target
 
-ENV NODE_VERSION=12.9.1 \
-    NPM_VERSION=6.10.2
-RUN bash -c "source $NVM_DIR/nvm.sh && \
-    nvm install $NODE_VERSION && \
-    nvm alias default $NODE_VERSION && \
-    nvm use default && \
-    npm install -g npm@$NPM_VERSION && \
-    npm cache clear --force"
-ENV NODE_PATH=$NVM_DIR/versions/node/v$NODE_VERSION/lib/node_modules \
-    PATH=$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
 
-COPY divio/nginx/vhost.conf /etc/nginx/sites-available/default
-COPY divio/php/php-fpm.conf /usr/local/etc/php-fpm.conf
-
-COPY composer.* /app/
-RUN cd /app && composer install --no-scripts
+# Base FrankenPHP image
+FROM frankenphp_upstream AS frankenphp_base
 
 WORKDIR /app
-COPY . /app
 
-RUN cd /app && composer run-script post-install-cmd && composer auto-scripts
+# persistent / runtime deps
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+		acl \
+		file \
+		gettext \
+		git \
+	;
 
-ENTRYPOINT [ "" ]
-CMD ["start", "web"]
+RUN set -eux; \
+	install-php-extensions \
+		@composer \
+		apcu \
+		intl \
+		opcache \
+		zip \
+	;
+
+# https://getcomposer.org/doc/03-cli.md#composer-allow-superuser
+ENV COMPOSER_ALLOW_SUPERUSER=1
+
+###> recipes ###
+###< recipes ###
+
+COPY --link frankenphp/conf.d/app.ini $PHP_INI_DIR/conf.d/
+COPY --link frankenphp/docker-entrypoint.sh /usr/local/bin/docker-entrypoint
+COPY --link frankenphp/Caddyfile /etc/caddy/Caddyfile
+RUN chmod 755 /usr/local/bin/docker-entrypoint
+
+ENTRYPOINT ["docker-entrypoint"]
+
+HEALTHCHECK --start-period=60s CMD curl -f http://localhost:2019/metrics || exit 1
+
+CMD [ "frankenphp", "run", "--config", "/etc/caddy/Caddyfile" ]
+
+# Dev FrankenPHP image
+FROM frankenphp_base AS frankenphp_dev
+
+ENV APP_ENV=dev XDEBUG_MODE=off
+VOLUME /app/var/
+
+RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
+
+RUN set -eux; \
+	install-php-extensions \
+		xdebug \
+	;
+
+COPY --link frankenphp/conf.d/app.dev.ini $PHP_INI_DIR/conf.d/
+
+CMD [ "frankenphp", "run", "--config", "/etc/caddy/Caddyfile", "--watch" ]
+
+# Prod FrankenPHP image
+FROM frankenphp_base AS frankenphp_prod
+
+ENV APP_ENV=prod
+ENV FRANKENPHP_CONFIG="import worker.Caddyfile"
+
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+COPY --link frankenphp/conf.d/app.prod.ini $PHP_INI_DIR/conf.d/
+COPY --link frankenphp/worker.Caddyfile /etc/caddy/worker.Caddyfile
+
+# prevent the reinstallation of vendors at every changes in the source code
+COPY --link composer.* symfony.* ./
+RUN set -eux; \
+	composer install --no-cache --prefer-dist --no-dev --no-autoloader --no-scripts --no-progress
+
+# copy sources
+COPY --link . ./
+RUN rm -Rf frankenphp/
+
+RUN set -eux; \
+	mkdir -p var/cache var/log; \
+	composer dump-autoload --classmap-authoritative --no-dev; \
+	composer dump-env prod; \
+	composer run-script --no-dev post-install-cmd; \
+	chmod +x bin/console; sync;
+
+# Run on Divio Cloud
+FROM frankenphp_dev
+
+ENV SERVER_NAME=:80
+ENV STABILITY=stable
+ENV MERCURE_PUBLISHER_JWT_KEY=changeme
+ENV MERCURE_SUBSCRIBER_JWT_KEY=changeme
+
+COPY . /app/
