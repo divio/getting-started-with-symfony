@@ -8,9 +8,6 @@ Welcome to our QuickStart template – your portal to swift application developm
 
 Use the app creation wizard with a free [Divio Account](https://control.divio.com/) and choose **Symfony** from the template selection. Alternatively, click the `Deploy to Divio` button above and follow the app creation wizard. Finally, deploy your app to the `test` or `live` environment.
 
-Beware that the **admin** user is not created automatically.
-You can do so by connecting via SSH and manually run `python manage.py createsuperuser`.
-
 For in-depth details about Divio Cloud, refer to the [Divio documentation](https://docs.divio.com/introduction/).
 
 ## Local Setup
