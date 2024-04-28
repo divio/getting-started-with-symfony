@@ -1,10 +1,8 @@
 services:
   web:
     build: .
-    command: symfony server:start --port 80
     environment:
       DATABASE_URL: "mysql://root@database_default:3306/db"
-      APP_DEBUG: true
     links:
       - database_default
     ports:

@@ -1,4 +1,4 @@
-FROM php:8.3-fpm
+FROM php:8.3-apache
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
 
@@ -14,10 +14,16 @@ RUN curl -sS https://get.symfony.com/cli/installer | bash
 RUN mv /root/.symfony5/bin/symfony /usr/bin/symfony
 
 COPY composer.* /var/www/html/
-RUN composer install --no-interaction --no-dev --no-scripts
+RUN composer install --no-interaction --no-scripts
 
 COPY . /var/www/html
 
+# configure for serving on apache
+RUN a2enmod rewrite
+ENV APACHE_DOCUMENT_ROOT /var/www/html/public
+RUN sed -i -e 's|/var/www/html|${APACHE_DOCUMENT_ROOT}|g' /etc/apache2/sites-available/000-default.conf
+RUN sed -i -e 's|/var/www/html|${APACHE_DOCUMENT_ROOT}|g' /etc/apache2/apache2.conf
+
 EXPOSE 80
 
-CMD ["symfony", "server:start", "--port", "80"]
+CMD ["apache2-foreground"]
